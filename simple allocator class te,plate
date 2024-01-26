@@ -1,0 +1,73 @@
+template<typename T> 
+class Allocator {
+public:
+    Allocator() {};
+    T* allocate(int n); // allocate space for n objects of type T
+    void deallocate(T* p, int n); // deallocate n objects of type T starting at p
+    void construct(T* p, const T& v); // construct a T with the value v in p
+    void destroy(T* p); // destroy the T in p
+};
+
+template<typename T> 
+T* Allocator<T>::allocate(int n) {
+    if (n > size_t(-1) / sizeof(T))
+        throw std::bad_alloc();
+    auto p = static_cast<T*>(std::malloc(n * sizeof(T)));
+    if (!p) throw std::bad_alloc();
+    return p;
+}
+
+template<typename T>
+void Allocator<T>::deallocate(T* p, int n) {
+    if (p) {
+  
+        for (int i = 0; i < n; ++i)
+        {
+            p[i].~T(); 
+        }
+        std::free(p); 
+    }
+    else throw std::bad_alloc();
+}
+
+template<typename T>
+void Allocator<T>::construct(T* p, const T& v) {
+    new (static_cast<void*>(p)) T{v};
+}
+
+template<typename T>
+void Allocator<T>::destroy(T* p) {
+    if (p) {
+        p->~T();
+        
+    }
+    else throw std::bad_alloc();
+}
+
+struct S {
+    S(int xx) : x{ xx } { }
+    int x{ 0 };
+    void print() { std::cout << "I'm here!\n"; }
+};
+
+
+int main()
+try {
+
+    Allocator<S> alloc;
+
+    S* pp = alloc.allocate(5);
+
+    for (int i = 0; i < 5; ++i)
+        alloc.construct(&pp[i], S{8});
+
+    for (int i = 0; i < 5; ++i)
+        std::cout << pp[i].x;
+
+    //alloc.destroy(&pp[0]);
+
+   alloc.deallocate(pp, 5);
+
+    for (int i = 0; i < 5; ++i)
+        std::cout << pp[i].x;
+
