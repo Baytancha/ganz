@@ -105,6 +105,7 @@ public:
 
     void resize(int newsize, T def = T());         // growth
     void push_back(const T& d);
+    void push_front(const T& d);
     void reserve(int newalloc);
 
 };
@@ -204,6 +205,22 @@ void vector<T, A>::push_back(const T& val)
 }
 
 //------------------------------------------------------------------------------
+template<class T, class A>
+void vector<T, A>::push_front(const T& val)
+{
+    if (space == 0) {
+        reserve(8);
+    }
+    else
+        if (space == sz) {
+            reserve(2 * space);
+        }
+
+	for (int i = sz; i > 0; --i) alloc.construct(&elem[i], elem[i - 1]); // using alloc because we can't assign elem[sz-1] to uninitialized memory
+    alloc.construct(&elem[0], val);  // construct in case we adding first element
+    ++sz;                            // increase the size
+}
+//------------------------------------------------------------------------------
 
 template<class T, class A>
 void vector<T, A>::resize(int newsize, T val)
@@ -224,7 +241,10 @@ struct S {
 
 int main()
 try {
+	vector<int> nulp;
+	nulp.push_front(100);
 
+	std::cout << nulp [0]<< "\n"; 
 
     {
         vector<int> vett{ 2,5,73,1 };                 //destructor call
