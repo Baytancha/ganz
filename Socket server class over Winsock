@@ -1,0 +1,274 @@
+////Server Socket Class header
+
+#pragma once
+#include <WS2tcpip.h>    //header for winsock function
+#include <string>
+
+#pragma comment(lib, "ws2_32.lib") //winsock DLL
+
+class CTcpListener;
+
+using MessageReceivedHandler = void(*)(CTcpListener* Listener, int socketID, std::string message);
+
+
+// TODO: Callback to data received
+class CTcpListener 
+{ 
+public:
+	CTcpListener(std::string ipAddress, int port, MessageReceivedHandler handler);
+
+	~CTcpListener();
+
+	//send message to a specified client
+	void Send(int clientSocket, std::string message);
+
+	//init winsock
+	bool Init();
+
+	//main processing loop
+	void Run();
+
+	void Cleanup();
+
+private:
+	std::string m_ipAddress;
+	int m_port;
+	MessageReceivedHandler MessageReceived;
+
+	//create socket
+	SOCKET createSocket();
+	//wait for conection
+	SOCKET waitForConnection(SOCKET listening);
+	sockaddr_in m_clientAddr; 
+
+
+};
+
+
+
+
+
+
+
+
+
+////Socket Server Class cpp file
+
+#include "TCPlistener.h"
+#include <iostream>
+#include <fstream>
+
+CTcpListener::CTcpListener(std::string ipAddress, int port, MessageReceivedHandler handler) 
+	: m_ipAddress(ipAddress), m_port(port), MessageReceived(handler)
+{ 
+
+
+}
+
+CTcpListener::~CTcpListener() 
+{ 
+
+	Cleanup();
+
+}
+
+
+
+void CTcpListener::Cleanup() 
+{ 
+
+	WSACleanup();
+
+
+} 
+
+//send message to a specified client
+void CTcpListener::Send(int clientSocket, std::string message) 
+{ 
+ send(clientSocket, message.c_str(), message.size() + 1, 0);
+
+} 
+
+//init winsock
+bool CTcpListener::Init() 
+{ 
+	WSAData data;
+	WORD ver = MAKEWORD(2, 2);
+
+	int WSinit = WSAStartup(ver, &data);
+	
+	return WSinit == 0;
+
+} 
+
+//main processing loop
+void CTcpListener::Run() 
+{ 
+	char buf[9999];
+
+	while (true) //this keeps the server up?
+	{
+		std::cout << "LOOP " << std::endl;
+
+		SOCKET listening = createSocket();
+		if (listening == INVALID_SOCKET) 
+		{ 
+		  std::cerr << "Can't create socket! Quitting" << std::endl; 
+		  //Cleanup(); we will clean up immediately after Run() returns and we exit the main() loop
+		  break; 
+		
+		}
+
+		SOCKET client = waitForConnection(listening); //pausing execution
+		if (client != INVALID_SOCKET)
+		{
+			char str[INET_ADDRSTRLEN];
+			std::cout<< "Connection accepted from " << inet_ntop(AF_INET, &client, str, INET_ADDRSTRLEN) << std::endl;
+
+			closesocket(listening); //we don't need more connections once we found one
+
+			int bytesReceived = 0;
+			do //as long as client connects, we're in the loop
+			{
+				ZeroMemory(buf, 9999); //cleaning it up at every loop
+
+				bytesReceived = recv(client, buf, 9999, 0);
+
+				if (bytesReceived > 0)
+				{
+					if (MessageReceived != NULL)                           //this is where func is invoked
+					{
+						MessageReceived(this, client, std::string(buf, 0, bytesReceived));
+					}
+
+				}
+
+				std::ofstream logFile("log.txt", std::ios_base::app);
+				if (logFile.is_open()) {
+					logFile << buf << std::endl;
+					logFile.close();
+				}
+				else {
+					std::cerr << "Unable to open log file" << std::endl;
+				}
+
+			}
+			while (bytesReceived > 0); //accounts for both "client disconnected" and "error in rcv()" cases
+
+			closesocket(client);
+
+		}
+		else {
+			std::cerr << "Can't create connection socket! Quitting" << WSAGetLastError() << std::endl;
+			//Cleanup();
+		}
+
+	}
+} 
+
+SOCKET CTcpListener::createSocket() //includes creating, binding and listening funcs
+{
+	SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
+	if (listening != INVALID_SOCKET) {
+		sockaddr_in hint;
+		hint.sin_family = AF_INET;
+		hint.sin_port = htons(m_port); //networks are big endianeess and PCs are local endianness, so we do byte replacement
+		hint.sin_addr.S_un.S_addr = INADDR_ANY; //bind to any address
+		inet_pton(AF_INET, m_ipAddress.c_str(), &hint.sin_addr);
+		int BindOK = bind(listening, (sockaddr*)&hint, sizeof(hint));
+		if (BindOK != SOCKET_ERROR) 
+		{
+			int ListenOK = listen(listening, SOMAXCONN);
+			if (ListenOK == SOCKET_ERROR)
+			{
+				return -1;
+			}
+		}
+		else 
+		{
+			return -1;
+		}
+	}
+	
+	return listening; // we will capture all invalid values in Run()
+
+}
+SOCKET CTcpListener::waitForConnection(SOCKET listening) 
+{ 
+	sockaddr_in clientAddr;
+	int ClientSize = sizeof(clientAddr);
+	SOCKET client = accept(listening, (sockaddr*)&clientAddr, &ClientSize);
+	m_clientAddr = clientAddr;
+	return client;
+
+
+} 
+
+
+
+
+
+
+
+
+//// main cpp providing loop and callback function handling client response
+
+
+include "TCPlistener.h"
+
+
+//callback function is intertwined with the Send function; 
+// depending on the message received, it will send a different message
+//listener is the this pointer to the server object
+void Listener_MessageReceived(CTcpListener* listener, int client, std::string message) 
+{
+	message = "Message from client: " + message;
+	listener->Send(client, message);
+
+}
+
+int main()
+{
+	std::string IP  = "127.0.0.1";
+
+	CTcpListener server(IP, 54000, Listener_MessageReceived); //we only store data, no system calls here
+
+	if (server.Init()) // if WSAStartup returns 0
+	{
+		server.Run();
+	}
+	else //returns error value
+	{
+		std::cerr << "Can't initialize winsock! Quitting" << std::endl;
+		return 1;
+	}
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
